@@ -1,244 +1,223 @@
-// ===== CANVAS =====
+// =======================
+// CANVAS
+// =======================
 const canvas = document.getElementById("game");
 const ctx = canvas.getContext("2d");
-canvas.width = 400;
-canvas.height = 600;
 
-// ===== FIREBASE =====
-const FIREBASE_URL = "https://mi-juego-ranking-default-rtdb.firebaseio.com//scores.json";
+canvas.width = 360;
+canvas.height = 640;
 
-// ===== ESTADO =====
-let level = Number(localStorage.getItem("level")) || 1;
-let score = Number(localStorage.getItem("score")) || 0;
+// =======================
+// ESTADOS
+// =======================
+const MENU = 0;
+const PLAY = 1;
+const GAMEOVER = 2;
+let state = MENU;
 
-const player = { x: 200, y: 520, lives: 3, speed: 5 };
+// =======================
+// LANES (CARRILES)
+// =======================
+const lanes = [60, 165, 270];
+let currentLane = 1;
 
-let bullets = [];
-let enemies = [];
-let boss = null;
-let bossBullets = [];
-let gameOver = false;
-let showRanking = false;
-let rankingData = [];
+// =======================
+// JUGADOR
+// =======================
+const player = {
+  size: 32,
+  y: 520,
+  lives: 3,
+  shield: false
+};
 
-// ===== CONTROLES =====
-const keys = {};
+// =======================
+// JUEGO
+// =======================
+let obstacles = [];
+let powerUps = [];
+let speed = 3;
+let score = 0;
+let highScore = localStorage.getItem("highScore") || 0;
+
+// =======================
+// INPUT (TECLADO + TÁCTIL)
+// =======================
 document.addEventListener("keydown", e => {
-  keys[e.key] = true;
-  if (e.key === " ") shoot();
-  if (e.key === "r" && gameOver) restartGame();
+  if (e.key === "ArrowLeft" && currentLane > 0) currentLane--;
+  if (e.key === "ArrowRight" && currentLane < 2) currentLane++;
+  if (e.key === " " && state !== PLAY) startGame();
 });
-document.addEventListener("keyup", e => keys[e.key] = false);
 
-// ===== DISPARO =====
-function shoot() {
-  if (!gameOver) bullets.push({ x: player.x, y: player.y });
-}
+// TÁCTIL (MÓVIL)
+canvas.addEventListener("touchstart", e => {
+  const x = e.touches[0].clientX;
+  if (x < window.innerWidth / 2 && currentLane > 0) currentLane--;
+  if (x > window.innerWidth / 2 && currentLane < 2) currentLane++;
+  if (state !== PLAY) startGame();
+});
 
-// ===== COLISIÓN =====
-function hit(a, b, d = 20) {
-  return Math.abs(a.x - b.x) < d && Math.abs(a.y - b.y) < d;
-}
-
-// ===== ENEMIGOS =====
-function spawnEnemy() {
-  enemies.push({
-    x: Math.random() * 360 + 20,
-    y: -20,
-    speed: 2 + level * 0.3
-  });
-}
-
-// ===== BOSS =====
-function spawnBoss() {
-  boss = {
-    x: 200,
-    y: 80,
-    life: 40 + level * 10,
-    dir: 1,
-    shootTimer: 0,
-    time: 0
-  };
-}
-
-// ===== FIREBASE =====
-function enviarPuntuacion(nombre, puntos) {
-  fetch(FIREBASE_URL, {
-    method: "POST",
-    body: JSON.stringify({ name: nombre, score: puntos })
-  });
-}
-
-function cargarRanking() {
-  fetch(FIREBASE_URL)
-    .then(r => r.json())
-    .then(data => {
-      if (!data) return;
-      rankingData = Object.values(data)
-        .sort((a, b) => b.score - a.score)
-        .slice(0, 5);
-      showRanking = true;
-    });
-}
-
-// ===== FIN =====
-function endGame() {
-  gameOver = true;
-  localStorage.clear();
-
-  const nombre = prompt("Tu nombre para el ranking:");
-  if (nombre) enviarPuntuacion(nombre, score);
-  cargarRanking();
-}
-
-// ===== REINICIO =====
-function restartGame() {
-  level = 1;
+// =======================
+// FUNCIONES
+// =======================
+function startGame() {
+  obstacles = [];
+  powerUps = [];
+  speed = 3;
   score = 0;
   player.lives = 3;
-  bullets = [];
-  enemies = [];
-  boss = null;
-  bossBullets = [];
-  gameOver = false;
-  showRanking = false;
-  saveGame();
+  player.shield = false;
+  currentLane = 1;
+  state = PLAY;
 }
 
-// ===== GUARDAR =====
-function saveGame() {
-  localStorage.setItem("level", level);
-  localStorage.setItem("score", score);
+function createObstacle() {
+  obstacles.push({
+    lane: Math.floor(Math.random() * 3),
+    y: -40,
+    size: 30
+  });
 }
 
-// ===== UPDATE =====
+function createPowerUp() {
+  powerUps.push({
+    lane: Math.floor(Math.random() * 3),
+    y: -40,
+    type: "shield"
+  });
+}
+
+function collide(a, b) {
+  return (
+    Math.abs(a.y - b.y) < 30 &&
+    a.lane === b.lane
+  );
+}
+
+// =======================
+// UPDATE
+// =======================
 function update() {
-  if (gameOver) return;
+  if (state !== PLAY) return;
 
-  if (keys["ArrowLeft"] && player.x > 20) player.x -= player.speed;
-  if (keys["ArrowRight"] && player.x < 380) player.x += player.speed;
+  score++;
+  speed += 0.002;
 
-  bullets.forEach(b => b.y -= 7);
-  bullets = bullets.filter(b => b.y > 0);
+  if (Math.random() < 0.03) createObstacle();
+  if (Math.random() < 0.005) createPowerUp();
 
-  if (!boss && Math.random() < 0.02) spawnEnemy();
-  enemies.forEach(e => e.y += e.speed);
-
-  enemies.forEach((e, ei) => {
-    bullets.forEach((b, bi) => {
-      if (hit(e, b)) {
-        enemies.splice(ei, 1);
-        bullets.splice(bi, 1);
-        score += 10;
+  obstacles.forEach(o => {
+    o.y += speed;
+    if (collide({ lane: currentLane, y: player.y }, o)) {
+      if (player.shield) {
+        player.shield = false;
+        o.y = 1000;
+      } else {
+        player.lives--;
+        o.y = 1000;
+        if (player.lives <= 0) endGame();
       }
-    });
-
-    if (e.y > 600 || hit(e, player)) {
-      enemies.splice(ei, 1);
-      player.lives--;
-      if (player.lives <= 0) endGame();
     }
   });
 
-  if (level % 3 === 0 && !boss) spawnBoss();
-
-  if (boss) {
-    boss.x += boss.dir * 2;
-    if (boss.x < 40 || boss.x > 360) boss.dir *= -1;
-
-    boss.shootTimer++;
-    boss.time++;
-
-    if (boss.shootTimer > 40) {
-      bossBullets.push({ x: boss.x, y: boss.y });
-      boss.shootTimer = 0;
+  powerUps.forEach(p => {
+    p.y += speed;
+    if (collide({ lane: currentLane, y: player.y }, p)) {
+      player.shield = true;
+      p.y = 1000;
     }
+  });
 
-    if (boss.time > 1800) boss.life = 0;
+  obstacles = obstacles.filter(o => o.y < canvas.height);
+  powerUps = powerUps.filter(p => p.y < canvas.height);
+}
 
-    bossBullets.forEach(b => b.y += 4);
-    bossBullets = bossBullets.filter(b => b.y < 600);
-
-    bossBullets.forEach((b, bi) => {
-      if (hit(b, player)) {
-        bossBullets.splice(bi, 1);
-        player.lives--;
-        if (player.lives <= 0) endGame();
-      }
-    });
-
-    bullets.forEach((b, bi) => {
-      if (hit(boss, b, 30)) {
-        bullets.splice(bi, 1);
-        boss.life--;
-        score += 5;
-        if (boss.life <= 0) {
-          if (level >= 9) {
-            endGame();
-            return;
-          }
-          boss = null;
-          level++;
-          saveGame();
-        }
-      }
-    });
-  }
-
-  if (score > level * 200 && !boss) {
-    level++;
-    saveGame();
+function endGame() {
+  state = GAMEOVER;
+  if (score > highScore) {
+    highScore = score;
+    localStorage.setItem("highScore", highScore);
   }
 }
 
-// ===== DIBUJO =====
+// =======================
+// DRAW
+// =======================
 function draw() {
   ctx.fillStyle = "#111";
-  ctx.fillRect(0, 0, 400, 600);
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-  ctx.font = "24px Arial";
-  ctx.fillText("🚀", player.x - 12, player.y + 12);
+  // Carriles
+  ctx.strokeStyle = "#333";
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(120, 0);
+  ctx.lineTo(120, canvas.height);
+  ctx.moveTo(240, 0);
+  ctx.lineTo(240, canvas.height);
+  ctx.stroke();
 
-  bullets.forEach(b => ctx.fillText("🔹", b.x - 5, b.y));
-  enemies.forEach(e => ctx.fillText("👾", e.x - 12, e.y + 12));
-
-  if (boss) {
-    ctx.font = "40px Arial";
-    ctx.fillText("👑", boss.x - 20, boss.y + 20);
-    ctx.font = "16px Arial";
-    ctx.fillText("BOSS VIDA: " + boss.life, 140, 30);
-  }
-
-  bossBullets.forEach(b => ctx.fillText("🔥", b.x - 8, b.y + 8));
-
-  ctx.font = "16px Arial";
-  ctx.fillStyle = "white";
-  ctx.fillText("Puntos: " + score, 10, 20);
-  ctx.fillText("Vidas: " + player.lives, 320, 20);
-  ctx.fillText("Nivel: " + level, 180, 20);
-
-  if (gameOver) {
-    ctx.font = "22px Arial";
-    ctx.fillText("FIN DEL JUEGO", 120, 280);
-    ctx.font = "16px Arial";
-    ctx.fillText("Pulsa R para reiniciar", 110, 320);
-  }
-
-  if (showRanking) {
-    ctx.fillStyle = "rgba(0,0,0,0.8)";
-    ctx.fillRect(50, 150, 300, 300);
-    ctx.fillStyle = "white";
-    ctx.fillText("🏆 RANKING 🏆", 140, 180);
-    rankingData.forEach((p, i) => {
-      ctx.fillText(`${i + 1}. ${p.name} - ${p.score}`, 90, 220 + i * 30);
-    });
-  }
+  if (state === MENU) drawMenu();
+  if (state === PLAY) drawGame();
+  if (state === GAMEOVER) drawGameOver();
 }
 
-// ===== LOOP =====
+function drawGame() {
+  // Jugador
+  ctx.fillStyle = player.shield ? "gold" : "cyan";
+  ctx.beginPath();
+  ctx.arc(lanes[currentLane], player.y, player.size / 2, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Obstáculos
+  ctx.fillStyle = "red";
+  obstacles.forEach(o => {
+    ctx.fillRect(lanes[o.lane] - 15, o.y, 30, 30);
+  });
+
+  // PowerUps
+  ctx.fillStyle = "lime";
+  powerUps.forEach(p => {
+    ctx.beginPath();
+    ctx.arc(lanes[p.lane], p.y, 10, 0, Math.PI * 2);
+    ctx.fill();
+  });
+
+  // UI
+  ctx.fillStyle = "white";
+  ctx.font = "16px Arial";
+  ctx.fillText("Puntos: " + score, 10, 25);
+  ctx.fillText("Vidas: " + player.lives, 10, 45);
+}
+
+function drawMenu() {
+  ctx.fillStyle = "white";
+  ctx.font = "26px Arial";
+  ctx.textAlign = "center";
+  ctx.fillText("TOP DOWN RUNNER", canvas.width / 2, 260);
+  ctx.font = "16px Arial";
+  ctx.fillText("Pulsa ESPACIO o toca la pantalla", canvas.width / 2, 300);
+  ctx.fillText("Récord: " + highScore, canvas.width / 2, 340);
+}
+
+function drawGameOver() {
+  ctx.fillStyle = "white";
+  ctx.font = "26px Arial";
+  ctx.textAlign = "center";
+  ctx.fillText("GAME OVER", canvas.width / 2, 260);
+  ctx.font = "16px Arial";
+  ctx.fillText("Puntos: " + score, canvas.width / 2, 300);
+  ctx.fillText("Récord: " + highScore, canvas.width / 2, 330);
+  ctx.fillText("Pulsa ESPACIO o toca", canvas.width / 2, 370);
+}
+
+// =======================
+// LOOP
+// =======================
 function loop() {
   update();
   draw();
   requestAnimationFrame(loop);
 }
+
 loop();
